@@ -9,6 +9,9 @@ Docker
 1. 기존의 하이퍼바이저식 가상화 방법이나, Vm보다 속도가 빠름
 2. 독립적인 환경으로 다른 것에 영향을 받지 않음
 
+![image](https://github.com/user-attachments/assets/aaa7a96c-e5f8-4c20-b59c-02a7317020d1)
+
+
 Image란?
 -------
 
