@@ -44,8 +44,82 @@
 - 레플리카의 개수는 유지해야 하는 파드의 개수를 명시
 - 파드 템플릿은 레플리카 수 유지를 위해 새로 생성되는 신규 파드의 데이터를 명시
 
-##### 명령어 
-
+##### 배포된 레플리카셋 확인
+```
+kubectl get rs
+```
+```
+NAME       DESIRED   CURRENT   READY   AGE
+frontend   3         3         3       6s
+```
+##### 레플리카셋의 상태 확인
+```
+kubectl describe rs/frontend
+```
+```
+Name:         frontend
+Namespace:    default
+Selector:     tier=frontend
+Labels:       app=guestbook
+              tier=frontend
+Annotations:  kubectl.kubernetes.io/last-applied-configuration:
+                {"apiVersion":"apps/v1","kind":"ReplicaSet","metadata":{"annotations":{},"labels":{"app":"guestbook","tier":"frontend"},"name":"frontend",...
+Replicas:     3 current / 3 desired
+Pods Status:  3 Running / 0 Waiting / 0 Succeeded / 0 Failed
+Pod Template:
+  Labels:  tier=frontend
+  Containers:
+   php-redis:
+    Image:        gcr.io/google_samples/gb-frontend:v3
+    Port:         <none>
+    Host Port:    <none>
+    Environment:  <none>
+    Mounts:       <none>
+  Volumes:        <none>
+Events:
+  Type    Reason            Age   From                   Message
+  ----    ------            ----  ----                   -------
+  Normal  SuccessfulCreate  117s  replicaset-controller  Created pod: frontend-wtsmm
+  Normal  SuccessfulCreate  116s  replicaset-controller  Created pod: frontend-b2zdv
+  Normal  SuccessfulCreate  116s  replicaset-controller  Created pod: frontend-vcmts
+```
+##### 유사한 파드 정보 확인
+```
+kubectl get pods
+```
+```
+NAME             READY   STATUS    RESTARTS   AGE
+frontend-b2zdv   1/1     Running   0          6m36s
+frontend-vcmts   1/1     Running   0          6m36s
+frontend-wtsmm   1/1     Running   0          6m36s
+```
+##### 실행중인 Pods Yaml 파일 확인
+```
+kubectl get pods (Pod's name) -o yaml
+```
+```
+apiVersion: v1
+kind: Pod
+metadata:
+  creationTimestamp: "2020-02-12T07:06:16Z"
+  generateName: frontend-
+  labels:
+    tier: frontend
+  name: frontend-b2zdv
+  namespace: default
+  ownerReferences:
+  - apiVersion: apps/v1
+    blockOwnerDeletion: true
+    controller: true
+    kind: ReplicaSet
+    name: frontend
+    uid: f391f6db-bb9b-4c09-ae74-6a1f77f3d5cf
+...
+```
+#### 레플리카 셋을 참조하지 않는 파드를 가지는 법
+- 레플리카를 배치하고 파드를 가져올 시, 레플리카 파드 3개와 참조하지 않는 파드 2개 생성됨
+- 이렇게 되면, 레플리카 파드 3개가 Running이 되고, 참조하지 않는 파드는 terminating 상태가 됨
+- 파드를 먼저 가져오고 레플리카를 배치할 시 참조하지않는 파드 2개와, 레플리카 파드 1개가 생성됨(Running)
 #### 디플로이먼트(Deployment)
 - 파드와 레플리카셋에 대한 선언적 업데이트를 제공.
 - 
