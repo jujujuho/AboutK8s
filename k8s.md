@@ -44,6 +44,42 @@
 - 레플리카의 개수는 유지해야 하는 파드의 개수를 명시
 - 파드 템플릿은 레플리카 수 유지를 위해 새로 생성되는 신규 파드의 데이터를 명시
 
+##### 레플리카셋 매니페스트
+```
+apiVersion: apps/v1
+kind: ReplicaSet
+metadata:
+  name: frontend
+  labels:
+    app: guestbook
+    tier: frontend
+spec:
+  # 케이스에 따라 레플리카를 수정한다.
+  replicas: 3
+  selector:
+    matchLabels:
+      tier: frontend
+  template:
+    metadata:
+      labels:
+        tier: frontend
+    spec:
+      containers:
+      - name: php-redis
+        image: gcr.io/google_samples/gb-frontend:v3
+```
+- ApiVersion, kind, metadata 필드가 필요.
+- kind값은 항상 ReplicaSet이다.
+- 오브젝트 이름은 유효한 DNS 서브도메인 이름이어야함
+- .spec 섹션 필요
+- 템플릿은 .spec.template을 붙이고, 다른 컨트롤러의 셀렉터와 겹치지 않도록 주의.
+- .spec.replicas를 설정해서 동시 동작 파드 수를 지정.(수를 맞추기 위해 파드 삭제, 생성함)
+- .spec.replicas의 기본 값은 1이다.
+##### 셀렉터
+```
+matchLabels:
+  tier: frontend
+```
 ##### 배포된 레플리카셋 확인
 ```
 kubectl get rs
@@ -116,13 +152,45 @@ metadata:
     uid: f391f6db-bb9b-4c09-ae74-6a1f77f3d5cf
 ...
 ```
-#### 레플리카 셋을 참조하지 않는 파드를 가지는 법
+##### 레플리카 셋을 참조하지 않는 파드를 가지는 법
 - 레플리카를 배치하고 파드를 가져올 시, 레플리카 파드 3개와 참조하지 않는 파드 2개 생성됨
 - 이렇게 되면, 레플리카 파드 3개가 Running이 되고, 참조하지 않는 파드는 terminating 상태가 됨
 - 파드를 먼저 가져오고 레플리카를 배치할 시 참조하지않는 파드 2개와, 레플리카 파드 1개가 생성됨(Running)
+##### 레플리카셋의 스케일링
+- 스케일 다운할 때, 컨트롤러에서 스케일 다운하는 우선순위를 지정하기 위해 다음 기준으로 삭제할 파드를 지정
+  1. Pending Status(스케줄링 X)
+  2. controller.kubernetes.io/pod-deletion-cost 어노테이션이 설정 되어져 있는 파드에 대한, 설정 값이 낮은 파드가 먼저 다운
+  3. 상대적으로 많은 래플리카가 있는 노드의 파드가 더 적은 레플리카가 있는 노드의 파드보다 먼저 스케일 다운됨
+  4. 최근에 생성된 파드가 스케일 다운됨
+  5. 만약 모든 조건이 같으면 임의로 선택됨
 #### 디플로이먼트(Deployment)
 - 파드와 레플리카셋에 대한 선언적 업데이트를 제공.
-- 
+- 새 레플리카셋을 생성하거나, 기존 디플로이먼트를 제거하고, 모든 리소스에 새 디플로이먼트를 지정할 수 있음.
+
+##### 디플로이먼트 생성
+```
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nginx-deployment
+  labels:
+    app: nginx
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: nginx
+  template:
+    metadata:
+      labels:
+        app: nginx
+    spec:
+      containers:
+      - name: nginx
+        image: nginx:1.14.2
+        ports:
+        - containerPort: 80
+```
 ---
 ## Cluster
 
