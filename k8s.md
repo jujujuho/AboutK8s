@@ -518,5 +518,40 @@ REDIS_PRIMARY_PORT_6379_TCP_ADDR=10.0.0.11
 -Type필드를 NodePort로 지정하게 되면 컨트롤 플레인에서 ```--service-node-port-range``` 플래그로 지정된 범위에서 포트를 할당한다.
 -해제하기 위해서는 모든 노드 서비스에서 빼야한다.
 
-## ExternalName
+### ExternalName
 -spec.externalName에 도메인 이름을 설정하게 되면, 해당 서비스와 도메인이 연결된다.
+- Origin서버가 인식 못하는 헤더가 있기 때문에, TLS서버는 클라이언트가 연결된 호스트 이름과 일치하는 인증서를 제공할 수 없음
+## Ingress
+- 클러스터 외부에서 클러스터 내부 서비스로 HTTP와 HTTPS 경로를 노출한다. 트래픽 라우팅은 인그레스 리소스에 정의된 규칙에 의해 컨트롤된다.
+- 인그레스는 외부에서 서비스로 접속이 가능한 URL, 로드 밸런스 트래픽, SSL / TLS종료 그리고 이름-기반의 가상 호스팅을 제공하도록 구성된다.
+- 인그레스 컨트롤러는 일반적으로 로드 밸런서를 사용해서 인그레스를 수행할 책임이 있으며, 트래픽을 처리하는데 도움이 되도록 에지 라우터, 프런트 엔드를 구성할 수 있다.
+- 임의의 포트 또는 프로토콜을 노출시키지 않음. HTTP, HTTPS이외의 서비스를 인터넷에 노출시키려면 Service.Type=NodePort 또는 Service.Type=Loadbalancer유형의 서비스를 사용
+```
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: minimal-ingress
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /
+spec:
+  ingressClassName: nginx-example
+  rules:
+  - http:
+      paths:
+      - path: /testpath
+        pathType: Prefix
+        backend:
+          service:
+            name: test
+            port:
+              number: 80
+```
+- 인그레스 컨트롤러가 있어야 인그레스를 충족할 수 있음. 리소스만 있으면 소용 X
+- apiVersion, kind, metadata 및 spec 필드가 명시되어야 한다.
+- 인그레스 오브젝트 이름은 유효한 DNS 서브도메인 이름이어야 한다.
+- 어노테이션을 통해 다양한 컨트롤러를 제작할 수 있음
+- ingressClassNamem을 생략하기 위해서는 ingressClass로 기본적인 인그레스 클래스가 정의 되어야 한다.
+### 인그레스 규칙 
+- 선택적 호스트: 지정된 IP주소를 통해 모든 인바운드 HTTP 트래픽에 규칙이 적용 된다. 
+- 경로 목록: 각각 service.name과 service.port.name 또는 service.port.number가 정의되어 있는 관련 백엔드를 가지고 있다. 로드밸런서가 트래픽을 참조된 서비스로 보내기 전에 호스트와 경로가 모두 수신 요청의 내용과 일치해야함
+- 백엔드는  서비스와 포트 이름의 조합. 규칙의 호스
