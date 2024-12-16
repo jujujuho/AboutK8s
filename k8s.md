@@ -191,6 +191,97 @@ spec:
         ports:
         - containerPort: 80
 ```
+- .metadata.name 필드를 통해 nginx-deployment 이름을 가진 디플로이먼트가 생성
+- .spec.replicas 필드에 따라 디플로이먼트는 3개의 레플리카 파드를 생성하는 래플리카셋을 만듬
+- .spec.selector 필드는 생성된 레플리카셋이 관리할 파드를 찾아내는 법을 정의.
+##### 디플로이먼트 확인 
+```
+kubectl get deployments
+```
+```
+NAME               READY   UP-TO-DATE   AVAILABLE   AGE
+nginx-deployment   0/3     0            0           1s
+```
+- ``` name ```은 네임스페이스에 있는 디플로이먼트 이름의 목록이다
+- ``` Ready ```는 사용자가 사용할 수 있는 애플리케이션의 레플리카의 수를 표시
+- ``` UP-To-DATE ``` 의도한 상태를 얻기 위해 업데이트된 레플리카의 수를 표시
+- ``` Available ```은 사용자가 사용할 수 있는 애플리케이션 레플리카의 수를 표시
+- ``` Age ``` 는 애플리케이션의 실행된 시간을 표시
+
+- ```kubectl get rs```를 통해, 디플로이먼트로 생성된 레플리카셋을 볼 수 있음
+```
+NAME                          DESIRED   CURRENT   READY   AGE
+nginx-deployment-75675f5897   3         3         3       18s
+```
+- ```kubectl describe deployment (deployment-name)``` 디플로이먼트 설명 명령어
+```
+Name:                   nginx-deployment
+Namespace:              default
+CreationTimestamp:      Sun, 02 Sep 2018 18:17:55 -0500
+Labels:                 app=nginx
+Annotations:            deployment.kubernetes.io/revision=4
+                        kubernetes.io/change-cause=kubectl set image deployment/nginx-deployment nginx=nginx:1.16.1
+Selector:               app=nginx
+Replicas:               3 desired | 3 updated | 3 total | 3 available | 0 unavailable
+StrategyType:           RollingUpdate
+MinReadySeconds:        0
+RollingUpdateStrategy:  25% max unavailable, 25% max surge
+Pod Template:
+  Labels:  app=nginx
+  Containers:
+   nginx:
+    Image:        nginx:1.16.1
+    Port:         80/TCP
+    Host Port:    0/TCP
+    Environment:  <none>
+    Mounts:       <none>
+  Volumes:        <none>
+Conditions:
+  Type           Status  Reason
+  ----           ------  ------
+  Available      True    MinimumReplicasAvailable
+  Progressing    True    NewReplicaSetAvailable
+OldReplicaSets:  <none>
+NewReplicaSet:   nginx-deployment-c4747d96c (3/3 replicas created)
+Events:
+  Type    Reason              Age   From                   Message
+  ----    ------              ----  ----                   -------
+  Normal  ScalingReplicaSet   12m   deployment-controller  Scaled up replica set nginx-deployment-75675f5897 to 3
+  Normal  ScalingReplicaSet   11m   deployment-controller  Scaled up replica set nginx-deployment-c4747d96c to 1
+  Normal  ScalingReplicaSet   11m   deployment-controller  Scaled down replica set nginx-deployment-75675f5897 to 2
+  Normal  ScalingReplicaSet   11m   deployment-controller  Scaled up replica set nginx-deployment-c4747d96c to 2
+  Normal  ScalingReplicaSet   11m   deployment-controller  Scaled down replica set nginx-deployment-75675f5897 to 1
+  Normal  ScalingReplicaSet   11m   deployment-controller  Scaled up replica set nginx-deployment-c4747d96c to 3
+  Normal  ScalingReplicaSet   11m   deployment-controller  Scaled down replica set nginx-deployment-75675f5897 to 0
+  Normal  ScalingReplicaSet   11m   deployment-controller  Scaled up replica set nginx-deployment-595696685f to 1
+  Normal  DeploymentRollback  15s   deployment-controller  Rolled back deployment "nginx-deployment" to revision 2
+  Normal  ScalingReplicaSet   15s   deployment-controller  Scaled down replica set nginx-deployment-595696685f to 0
+```
+##### 디플로이먼트 업데이트
+- ```kubectl set```을 통해, 디플로이먼트의 내용을 수정할 수 있음.
+- ```kubectl rollout status```를 톨해 롤아웃 상태를 확인할 수 있음.
+```
+Waiting for rollout to finish: 2 out of 3 new replicas have been updated...
+```
+- 롤아웃이 완료되면, ```kubectl get deployments```로 확인 가능
+- ``` kubectl get rs ```, ``` kubectl get pods ```로 업데이트된 디플로이먼트의 레플리카셋과 새로 생성된 pods를 확인 할 수 있음
+
+  ##### 디플로이먼트 롤오버
+- 디플로이먼트 업데이트하는 중에, 또 다른 업데이트를 한다면, 생성된과 생성되고있는 노드를 다 죽이고, 새로 만듬
+
+ ##### 디플로이먼트 롤백
+- ```kubectl rollout history ?```을 통해 롤아웃 기록을 볼 수 있음.
+```  
+  
+  deployments
+  "nginx-deployment"
+REVISION    CHANGE-CAUSE
+1           kubectl apply --filename=https://k8s.io/examples/controllers/nginx-deployment.yaml
+2           kubectl set image deployment/nginx-deployment nginx=nginx:1.16.1
+3           kubectl set image deployment/nginx-deployment nginx=nginx:1.161
+```
+- ```kubectl rollout undo (Deployment name)```이전 수정 버전으로 롤백
+- ```kubectl rollout undo (Deployment name) --to-revision=(revision num)``` 롤아웃 버전으로 롤백
 ---
 ## Cluster
 
