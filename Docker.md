@@ -9,13 +9,14 @@
 
 - 기존 하이퍼바이저 방식의 가상화나 VM보다 **속도가 빠르다**.
 - **독립적인 환경**으로 다른 컨테이너에 영향을 주거나 받지 않는다.
-
+![image](https://github.com/user-attachments/assets/aaa7a96c-e5f8-4c20-b59c-02a7317020d1)
 ---
 
 ## Image란?
 
 Docker 이미지란 코드, 라이브러리, 종속성, 도구 등 컨테이너 실행에 필요한 **모든 파일을 포함한 템플릿**이다.  
 수정이 불가하며, 보통 **스냅샷**이라고도 불린다.
+![image](https://github.com/user-attachments/assets/f71e4222-b704-4249-aa04-6573e02a5487)
 
 ### Workflow
 
