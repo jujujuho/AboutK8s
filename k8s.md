@@ -26,6 +26,8 @@
 
 ![image](https://github.com/user-attachments/assets/a6f9665a-b424-4650-a351-c433e0739f61)
 
+# 컨트롤 플레인
+
 컨트롤 플레인은 보통 1개에서 n개로 존재 (홀수개).  
 컨트롤 플레인은 클러스터의 상태 관리와 명령어를 처리하는 역할을 함.  
 `etcd`, `controller-manager`, `scheduler`, `kube api server`라는 여러 컴포넌트로 이루어짐.  
