@@ -554,4 +554,101 @@ spec:
 ### 인그레스 규칙 
 - 선택적 호스트: 지정된 IP주소를 통해 모든 인바운드 HTTP 트래픽에 규칙이 적용 된다. 
 - 경로 목록: 각각 service.name과 service.port.name 또는 service.port.number가 정의되어 있는 관련 백엔드를 가지고 있다. 로드밸런서가 트래픽을 참조된 서비스로 보내기 전에 호스트와 경로가 모두 수신 요청의 내용과 일치해야함
-- 백엔드는  서비스와 포트 이름의 조합. 규칙의 호스
+- 백엔드는  서비스와 포트 이름의 조합. 규칙의 호스트와 경로가 일치하는 인그레스에 대한 HTTP(S) 요청은 백엔드 목록으로 전송
+- 규칙이 없는 인그레스는 DefaultBackend를 통해 처리되고, rules에 명시되지 않으면, 반드시 DefaultBackend에는 명시되어야하는 것이다.
+### 리소스 백엔드
+- 인그레스 오브젝트와 동일한 네임스페이스 내에 있는 다른 쿠버네티스 리소스에 대한 ObjectRef이다. 리소스는 서비스와 상호 배타적인 설정이며, 둘 다 지정하면 유효성 검사에 실패한다.
+- 리소스 백엔드의 일반적인 용도는 정적 자산이 있는 오브젝트 스토리지 백엔드로 데이터를 수신하는 것이다.
+```
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ingress-resource-backend
+spec:
+  defaultBackend:
+    resource:
+      apiGroup: k8s.example.com
+      kind: StorageBucket
+      name: static-assets
+  rules:
+    - http:
+        paths:
+          - path: /icons
+            pathType: ImplementationSpecific
+            backend:
+              resource:
+                apiGroup: k8s.example.com
+                kind: StorageBucket
+                name: icon-assets
+```
+
+- ```kubectl describe ingress *ingress-name)``` 인그레스 확인 명령어
+### 경로 유형
+- ```ImplementationSpecific```: 경로 유형의 일치 여부는 IngressClass에 따라 달라진다. 이를 구현할 때 별도 pathType으로 처리하거나, Prefix또는 Exact 경로 유형과 같이 동일하게 처리할 수 있다.
+- ```Exact```: URL 경로의 대소문자를 엄격하게 일치시킨다.
+- ```Prefix```: URL 경로의 접두사를 /를 기준으로 분리한 ㄱ밧과 일치시킨다. 일치는 대소문자 구분하고, 요소 별로 경로 요소에 대해 수행.
+
+- 여러 경로가 요청과 일치할 때, 긴 일치하는 경로가 우선하게 되고, 여전히 동일하다면, Exact경로 유형을 가진 경로가 사용 된다.
+
+## 호스트네임 와일드카드
+- 호스는 정확한 일치 또는 와일드카드일 수 있다. 정확한 일치를 위해서는 HTTP host헤더가 host필드와 일치해야한다.
+- 와일드카드 일치를 위해서는 HTTP host헤더가 와일드 카드 규칙의 접미사와 동일해야 한다.
+
+## 인그레스 클래스
+- 인그레스는 서로 다른 컨트롤러에 의해 구현될 수 있으며. 종종 다른 구성으로 구현될 수 있다. 각 인그레스에서는 클래스를 구현해야하는 컨트롤러 이름을 포함하여 추가 구성이 포함된 ingressclass 리소스에 대한 참조 클래스를 지정해야 한다.
+```
+apiVersion: networking.k8s.io/v1
+kind: IngressClass
+metadata:
+  name: external-lb
+spec:
+  controller: example.com/ingress-controller
+  parameters:
+    apiGroup: k8s.example.com
+    kind: IngressParameters
+    name: external-lb
+
+```
+- .spec.parameters 필드를 사용해 해당 인그래스클래스와 연관있는 환경 설정을 제공하는 다른 리소스를 참조할 수 있음.
+- 사용 가능한 파라미터의 상세한 타입은 인그레스클래스의 .spec.parameters 필드에 명시한 인그레스 컨트롤러의 종류에 따라 다르다.
+- 특징 ingressClass를 클러스터의 기본값으로 표시할 수 있다.
+- Ingressclass.kubernetes.io/is-default-class를 true로 설정하면 ingressclassname 필드가 저장되지 않은 채 기본 ingressClass로 할당된다.
+### 범위
+- 인그레스 클래스 파라미터의 기본 범위는 클러스터 범위이다.
+- ```.spec.parameters``` 필드만 설정하고 ```.spec.parameters.scope```필드는 지정하지 않거나, ```.spec.parameters.scope```필드를 ```Cluster```로 지정하면 인그레스 클래스는 클러스터 범위의 리소스를 참조한다.
+- 파라미터의 kind는 클러스터 범위의 APi를 참조하며, 파라미터의 name은 해당 API에 대한 특정 클러스터 범위 리소스를 가리킨다.
+
+
+  ![image](https://github.com/user-attachments/assets/867d6763-2d06-41cd-a9d2-4f41bce3a9db)
+
+
+
+## NameSpace
+- 클러스터 내의 리소스 그룹을 격리하기 위한 매커니즘, 논리적 그룹
+- 쿠버네티스 리소스는 하나의 네임스페이스에서만 있을 수 있다. 
+- 리소스 할당량을 통해 클러스터 리소스를 여러 사용자간에 나눌 수 있다.
+### 초기 네임스페이스
+- Default: 이 네임스페이스가 기본적으로 포함되어있어, 네임스페이스를 만들지 않고 새 클러스터에 쓸 수 있다.
+- kube-node-lease: 각 노드와 관련된 임대 객체를 보관, 노드 임대는 kubelet이 하드비트를 보내 컨트롤 플레인이 노드 장애를 감지할 수 있도록 한다.
+- kube-public: 모든 클라이언트가 읽을 수 있으며, 대부분 클러스터 사용을 위해 에약되어있다.
+- kube-system: 시스템이 만든 네임스페이스
+### 명령어
+```kubectl get namespace``` 클러스터의 현재 네임스페이스 보기
+```
+NAME              STATUS   AGE
+default           Active   1d
+kube-node-lease   Active   1d
+kube-public       Active   1d
+kube-system       Active   1d
+```
+- 요청에 대한 네임스페이스 설정. 현재 요청에 대한 네임스페이스 설정은 ```-namespace```플래그를 사용함.
+```
+kubectl run nginx --image=nginx --namespace=<insert-namespace-name-here>
+kubectl get pods --namespace=<insert-namespace-name-here>
+```
+- 네임스페이스 환경설정. 컨텍스트에서 모든 후속 kubectl 명령에 대한 네임스페이스를 영구적으로 저장.
+```
+kubectl config set-context --current --namespace=<insert-namespace-name-here>
+# Validate it
+kubectl config view --minify | grep namespace:
+```
