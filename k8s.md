@@ -377,4 +377,146 @@ REVISION    CHANGE-CAUSE
 ## Service
 
 - Pod를 Ip주소와 파드 집합에게 단일 DNS를 부여해, 네트워크 서비스에 노출시켜줌.
-- 
+### Service 
+```
+apiVersion: v1
+kind: Service
+metadata:
+  name: my-service
+spec:
+  selector:
+    app.kubernetes.io/name: MyApp
+  ports:
+    - protocol: TCP
+      port: 80
+      targetPort: 9376
+```
+- my-service라는 새로운 서비스 오브젝트를 생성하고, app.kubernetes.io/name=MyApp 레이블을 가진 파드의 TCP 9376 포트들 대상으로 함
+- 쿠버네티스는 이 서비스에 서비스 프록시가 사용하는 IP주소 (Cluster IP)를 할당함
+- 서비스 셀렉터의 컨트롤러는 셀렉터와 일치하는 파드를 지속적으로 검색하고, "my-service"라는 엔드포인트 오브젝트에 대한 모든 업데이트를 POST함.
+- 서비스는 모든 수신 Port를 targetport에 매핑할 수 있음. 기본적으로, targetport는 port필드와 같은 값으로 설정됨
+```
+apiVersion: v1
+kind: Pod
+metadata:
+  name: nginx
+  labels:
+    app.kubernetes.io/name: proxy
+spec:
+  containers:
+  - name: nginx
+    image: nginx:stable
+    ports:
+      - containerPort: 80
+        name: http-web-svc
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: nginx-service
+spec:
+  selector:
+    app.kubernetes.io/name: proxy
+  ports:
+  - name: name-of-service-port
+    protocol: TCP
+    port: 80
+    targetPort: http-web-svc
+```
+- 포트에 이름을 주어 service에 포트 이름으로 타겟 포트로 설정 가능(기본 TCP)
+- 셀렉터 없이 정의를 하기 위해서는 엔드포인트슬라이스를 수동으로 추가하여 매핑해야한다.
+```
+apiVersion: v1
+kind: Service
+metadata:
+  name: my-service
+spec:
+  ports:
+    - protocol: TCP
+      port: 80
+      targetPort: 9376
+```
+```
+apiVersion: discovery.k8s.io/v1
+kind: EndpointSlice
+metadata:
+  name: my-service-1 # 관행적으로, 서비스의 이름을
+                     # 엔드포인트슬라이스 이름의 접두어로 사용한다.
+  labels:
+    # "kubernetes.io/service-name" 레이블을 설정해야 한다.
+    # 이 레이블의 값은 서비스의 이름과 일치하도록 지정한다.
+    kubernetes.io/service-name: my-service
+addressType: IPv4
+ports:
+  - name: '' # 9376 포트는 (IANA에 의해) 잘 알려진 포트로 할당되어 있지 않으므로
+             # 이 칸은 비워 둔다.
+    appProtocol: http
+    protocol: TCP
+    port: 9376
+endpoints:
+  - addresses:
+      - "10.4.5.6" # 이 목록에 IP 주소를 기재할 때 순서는 상관하지 않는다.
+      - "10.1.2.3"
+```
+- kubernetes.io/service-name을 통해 엔드포인트슬라이스를 서비스와 연결할 수 있음
+- 엔드포인트는 최대 1000개의 엔드포인트를 가질 수 있다
+- 만약 갯 수를 넘는다면, 1000개만 선정하여 어노테이션한다. 만약 떨어지면 어노테이션은 없어진다.
+```
+apiVersion: v1
+kind: Service
+metadata:
+  name: my-service
+spec:
+  selector:
+    app.kubernetes.io/name: MyApp
+  ports:
+    - name: http
+      protocol: TCP
+      port: 80
+      targetPort: 9376
+    - name: https
+      protocol: TCP
+      port: 443
+      targetPort: 9377
+```
+- 쿠버네티스는 서비스에서 멀티포트를 제공한다.
+- 그리고 만약 사용 시, 모든 포트 이름은 명확하게 지정해야한다.
+- 포트 이름은 영숫자로 끝나야하고, 특수 기호는 - 밖에 사용이 불가하다.
+- CIDR 범위 내의 유효한 IPv4또는 IPv6 주소로 .spec.clusterIP필드에 설정할 수 있다
+- 이를 통해, 서비스 생성 요청시 고유한 클러스터 Ip주소를 지정할 수 있다.
+- 만약 유효하지 않으면 422에러가 발생.
+### 환경 변수
+```
+REDIS_PRIMARY_SERVICE_HOST=10.0.0.11
+REDIS_PRIMARY_SERVICE_PORT=6379
+REDIS_PRIMARY_PORT=tcp://10.0.0.11:6379
+REDIS_PRIMARY_PORT_6379_TCP=tcp://10.0.0.11:6379
+REDIS_PRIMARY_PORT_6379_TCP_PROTO=tcp
+REDIS_PRIMARY_PORT_6379_TCP_PORT=6379
+REDIS_PRIMARY_PORT_6379_TCP_ADDR=10.0.0.11
+```
+- TCP 6379 개방, 클러스터 IP: 10.0.0.11 할당된 서비스 redis-primary를 생성 시, 위의 환경 변수를 만듬
+- 서비스 접근이 필요한 파드나, 환경 변수를 사용하는 파드가 있을 경우, 서비스를 먼저 만들어야한다.
+
+### DNS 
+- 애드-온을 사용하여 쿠버네티스 클러스터의 DNS 서비스를 설정할 수 있다.
+- CoreDNS와 같은, 클러스터-인식 DNS 서버는 새로운 서비스를 위해 쿠버네티스 API를 감시하고 각각에 대한 DNS 레코드 세트를 생성한다
+- 클러스터 전체에서 DNS가 활성화된 경우 모든 파드는 DNS 이름으로 서비스를 자동으로 확인할 수 있어야 한다.
+
+- 또한, DNS SRV 레코드를 지원
+- TCP로 설정된 http라는 포트가 있는 경우, IP 주소와 http에 대한 포트 번호를 검색하기 위해
+- ```_http._tcp.my-service.my-ns```에 대한 DNS SRV 쿼리를 수행할 수 있다.
+
+- 쿠버네티스 DNS서버는 ExternalName 서비스에 접근할 수 있는 유일한 방법.\
+
+### 서비스 퍼블리싱 Type 유형
+- Cluster Ip: 서비스를 클러스터-내부 IP에 노출시킨다. 이 값을 선택하면 클러스터내에서만 서비스에 도달할 수 있다.
+- NodePort : 고정 포트로 각 노드의 IP에 서비스를 노출시킨다. type: ClusterIp인 서비스를 요청했을 때와 마찬가지로 클러스터 Ip를 구성함
+- LoadBalancer: 클라우드 공급자의 로드밸런서를 이용해, 서비스를 외부에 노출시킴
+### NodePort 유형
+-Type필드를 NodePort로 지정하게 되면 컨트롤 플레인에서 ```--service-node-port-range``` 플래그로 지정된 범위에서 포트를 할당한다.
+-해제하기 위해서는 모든 노드 서비스에서 빼야한다.
+
+## ExternalName
+-spec.externalName에 도메인 이름을 설정하게 되면, 해당 서비스와 도메인이 연결된다.
