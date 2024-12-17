@@ -652,3 +652,138 @@ kubectl config set-context --current --namespace=<insert-namespace-name-here>
 # Validate it
 kubectl config view --minify | grep namespace:
 ```
+## StatefulSet
+- 스테이트풀을 관리하기 위해 사용되는 워크로드 API 오브젝트이다.
+- 디플로이먼트와 스케일링을 관리, 파드들의 순서와 고유성을 보장함.
+- 디플로이먼트와 유사하게 컨테이너 스펙을 기반으로 한 파드들을 관리함. 교체는 불가.
+- > 재스케줄링 간에도 지속적으로 유지되는 식별자를 가짐
+
+- 파드에 지정된 스토리지는 관리자에 의해 PVP를 기반으로 하는 스토리지 클래스를 요청해서 프로비전이 되어야 한다.
+- 스테이트풀셋을 삭제, 스케일 다운해도 관련된 불륨은 삭제되지 않는다.
+- 현재 파드의 네트워크 신원을 책임지고 있는 헤드리스 서비스가 필요하다
+- 스테이트풀셋을 삭제할 시, 스케일을 0으로 지정하고 삭제해야한다. 이 후에 파드의 종료는 스테이트풀셋이 책임지지 않음.
+- 롤링 업데이트, 파드 매니지먼트 플래시를 함께 사용시 복구를 위한 수동 개입이 필요한 파손 상태로 빠질 수 있음.
+
+### 구성요소
+```
+apiVersion: v1
+kind: Service
+metadata:
+  name: nginx
+  labels:
+    app: nginx
+spec:
+  ports:
+  - port: 80
+    name: web
+  clusterIP: None
+  selector:
+    app: nginx
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: web
+spec:
+  selector:
+    matchLabels:
+      app: nginx # .spec.template.metadata.labels 와 일치해야 한다
+  serviceName: "nginx"
+  replicas: 3 # 기본값은 1
+  minReadySeconds: 10 # 기본값은 0
+  template:
+    metadata:
+      labels:
+        app: nginx # .spec.selector.matchLabels 와 일치해야 한다
+    spec:
+      terminationGracePeriodSeconds: 10
+      containers:
+      - name: nginx
+        image: registry.k8s.io/nginx-slim:0.8
+        ports:
+        - containerPort: 80
+          name: web
+        volumeMounts:
+        - name: www
+          mountPath: /usr/share/nginx/html
+  volumeClaimTemplates:
+  - metadata:
+      name: www
+    spec:
+      accessModes: [ "ReadWriteOnce" ]
+      storageClassName: "my-storage-class"
+      resources:
+        requests:
+          storage: 1Gi
+```
+- 이름이 nginx라는 헤드리스 서비스는 네트워크 도메인을 컨트롤하는데 사용된다.
+- 이름이 web인 스테이트풀셋이 3개의
+- 파드 .spec.selector 필드는 .spec.template.metadata.labels 레이블과 일치하도록 설정해야함
+  > 해당되는 파드 셀렉터를 찾지 못하면 스테이트풀셋 생성 과정에서 검증 오류가 발생한다.
+- volumeClaimTemplates은 퍼시스턴트 불륨 프로비저너에서 프로비전한 퍼시스턴트 불륨을 사용해서 안정적인 스토리지를 제공함.
+- .spec.volumeClaimTemplates를 설정하여, PVP에 의해 프로비전된 PV을 이용하는 안정적인 스토리지를 제공할 수 있다.
+- .spec.minReadySeconds는 파드가 사용가능이라고 간주될 수 있도록 파드의 모든 컨테이너가 문제 없이 실행되고 준비되는 최소 시간을 나타내는 선택적인 필드이다. ( 기본 값: 0 ) 
+
+### 순서 색인 
+- N개의 레플리카가 있는 스테이트풀셋은 각 파드에 0에서 N-1 까지의 정수가 순서대로 할당 되며, 해당 스테이트풀셋에서 고유하다.
+### 시작 순서
+- .spec.ordinals은 각 파드에 할당할 순서에 대한 정수값을 설정할 수 있게 해주는 선택적인 필드이다.
+- 기본 값은 nil이며, StateFulsetStartOrdinal 기능 게이트를 활성화 해야함
+- 활성화시: .spec.ordinals.start -> .spec.ordinals.start + .spec.replicas - 1 순서대로 할당된다.
+### 네트워크 신원 
+- 스테이트풀셋의 각 파드는 이름을 가진다. $(statefulset.name)-$(ordinal)
+- 파드의 도메인을 제어하기 워해, 헤드리스 서비스를 사용할 수 있다. $(service name).$(namespace).svc.cluster.local
+- cluster.local은 클러스터 도메인.
+- 각 파드는 생성되면 $(podname).$(governing service domain) 형식을 가지고 일치되는 DNS 서브 도메인을 가진다
+  -> 여기서 거비닝 서비스는 스테이트풀셋의 serviceName 필드에 의해 정의된다.
+- 즉시 검색을 하기 위해서는 DNS 조회에 의존하지 않고 쿠버네티스 API를 직접 쿼리하거나
+- 쿠버네티스 DNS공급자의 캐싱시간을 줄여야 한다.
+
+### 안정된 스토리지
+- Request를 통해 위의 구성요소는 my-storage-class라는 이름의 1 Gib 프로비전 스토리지를 가지는 단일 퍼시스턴트 불륨을 받게 된다.
+- 스케줄 혹은 재스케출이 되면 파드의 volumeMounts는 PVC와 관련된 PV가 마운트 된다. 파드나 스테이트풀셋이 삭제되도 PV와 PVC는 삭제 되지 않는다.
+- 스테이트풀셋 컨트롤러가 파드를 생성할 때 파드 이름으로 ```statefulset.kubernetes.io/pod-name```레이블이 추가된다.
+## 디플로이먼트와 스케일링 보증 
+- 파드가 삭제될 때는 역순으로 종료된다.
+- 스케줄링 작업을 적용하기 이전에 모든 선행 파드가 Running혹은 Ready 상태여야함
+- 파드가 종료되기 전에 모든 후속 파드가 완전히 종료되어야 한다.
+## 업데이트 전략
+- 최대 사용 불가능 파드 수를 정해, 업데이트 과정에서 사용 불가한 파드를 몇 개까지 허용할 것인지 설정할 수 있다. 절대값 또는 퍼센티지로 설정할 수 있다 ( 기본 값: 1 )
+### OnDelete(삭제)
+- 스테이트풀셋의 ```.spec.updateStrategy.type```은 OnDelete를 설정하며, 스테이트풀셋 컨트롤러는 스테이트풀셋의 파드를 자동으로 업데이트 하지 않는다.
+- 수동으로 파드를 삭제해야한다.
+### RollingUpdate
+- 스테이트풀셋의 파드에 대한 롤링 업데이트를 구현함
+- 각 파드를 순차적으로 종료가 한다.
+### 강제 롤백
+- 파드 템플릿을 Running이나 Ready 상태가 되지 않는 구성으로 업데이트하면, 스테이트풀셋은 롤아웃을 중지하고 기다린다.
+- 템플릿을 되둘린 후에는 잘못된 구성으로 시도된 파드들을 모두 삭제해야한다.
+
+## PVC 유보
+- 선택 필드 ```.spec.persistentVolumeClaimRetentionPolicy```는 스테이트풀셋의 생애주기동안 PVC를 삭제할 것인지, 어떻게 삭제할 것인지를 관리
+- API서버와 컨트롤러 매니저에 StatefulSetAutoDeletePVC 기능 게이트 를 활성화해야한다.
+### whenDeleted
+- 스테이트풀셋이 삭제될 때 적용될 불륨 유보 동작을 설정
+### whenScaled
+- 스테이트풀셋의 레플리카 수가 줄어들 때
+### Delete
+- PVC는 정책에 영향을 받는 각 파드에 대해 삭제
+- whenDeleted가 이 값으로 설정되어 있으면 volumeClaimTemplated으로부터 생성된 모든 PVC는 파드가 삭제된 뒤에 삭제된다.
+- whenScaled가 이 값으로 설정되어 있으면 스케일 다운된 파드 레플리카가 삭제된 뒤, 삭제된 파드에 해당하는 PVC만 삭제된다.
+### Retain(Default)
+- 파드가 삭제되어도 volumeClaimTemplate으로부터 생성된 PVC는 영향을 받지 않는다.
+```
+apiVersion: apps/v1
+kind: StatefulSet
+...
+spec:
+  persistentVolumeClaimRetentionPolicy:
+    whenDeleted: Retain
+    whenScaled: Delete
+...
+```
+- HorizontalPodAutoScaler가 디플로이먼트 크기를 관리하고 있다면, 레플리카의 수를 지정해서는 안된다.
+- 컨트롤 플레인이 자동으로 관리하기 때문
+
+## 데몬셋
+- 모든(일부) 노드가 파드의 사본을 실행하도록 함.
