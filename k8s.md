@@ -787,3 +787,131 @@ spec:
 
 ## 데몬셋
 - 모든(일부) 노드가 파드의 사본을 실행하도록 함.
+- 노드가 클러스에 추가되면 파드도 추가된다. 노드가 클러스터에서 제거되면 파드는 가비지로 수집된다.
+- 데몬셋을 삭제하면 데몬섹이 생성한 파드들이 정리된다.
+### 용도
+- 모든 노드에서 클러스터 스토리지 데몬 실행
+- 모든 노드에서 로그 수집 데몬 실행
+- 모든 노드에서 노드 모니터링 데몬 실행
+
+- 단순한 케이스로는, 각 데몬 유형의 처리를 위해서 모든 노드를 커버하는 하나의 데몬셋이 사용된다.
+- 여러개의 데몬셋이 쓰일 수 있음.
+### 데몬셋 사양 작성
+-Yaml파일로 작성
+```
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: fluentd-elasticsearch
+  namespace: kube-system
+  labels:
+    k8s-app: fluentd-logging
+spec:
+  selector:
+    matchLabels:
+      name: fluentd-elasticsearch
+  template:
+    metadata:
+      labels:
+        name: fluentd-elasticsearch
+    spec:
+      tolerations:
+      # 이 톨러레이션(toleration)은 데몬셋이 컨트롤 플레인 노드에서 실행될 수 있도록 만든다.
+      # 컨트롤 플레인 노드가 이 파드를 실행해서는 안 되는 경우, 이 톨러레이션을 제거한다.
+      - key: node-role.kubernetes.io/control-plane
+        operator: Exists
+        effect: NoSchedule
+      - key: node-role.kubernetes.io/master
+        operator: Exists
+        effect: NoSchedule
+      containers:
+      - name: fluentd-elasticsearch
+        image: quay.io/fluentd_elasticsearch/fluentd:v2.5.2
+        resources:
+          limits:
+            memory: 200Mi
+          requests:
+            cpu: 100m
+            memory: 200Mi
+        volumeMounts:
+        - name: varlog
+          mountPath: /var/log
+      terminationGracePeriodSeconds: 30
+      volumes:
+      - name: varlog
+        hostPath:
+          path: /var/log
+```
+#### 필수 필드
+- 다른 모든 쿠버네티스 설정과 마찬가지로 데몬셋에는 apiVersion, kind 그리고 metadata필드가 필요하다. 데몬셋 오브젝트의 이름은 유효한 DNS 서브도메인 이름이어야한다.
+- .spec 섹션도 필요하다.
+#### 파드 셀렉터
+- .spec.selector 필드는 파드 셀렉터이다.
+- .spec.template의 레이블과 매치되는 파드 셀렉터를 명시해야 한다.
+- 또한, 한 번 데몬셋이 만들어지면, .spec.selector는 바꿀 수 없다.
+- .spec.selector는 다음 2개의 필드로 구성된 오브젝트이다 .
+- matchLabels는 레플리케이션 컨트롤러의 .spec.selector와 동일하게 작동한다
+- matchExpressions는 키,값 목록 그리고 키 및 값에 관련된 연산자를 명시해서 보다 정교한 셀렉터를 만들 수 있다.
+- .spec.selector는 .spec.template.metadata.labels와 일치해야 한다. 이 둘이 서로 일치하지 않는 구성은 API에 의해 거부된다.
+#### 데몬셋컨트롤러
+- 데몬셋 컨트롤러는 데몬셋파드를 생성하고 스케줄한다.
+- 파드 선점은 기본 컨트롤러에서 하기 때문에, 데몬셋 컨트롤러는 파드 우선 순위, 선점을 고려하지 않는다.
+- ScheduleDaemonSetPods로 데몬셋 파드에 .spec.noedName 용어 대신 NodeAffinity 용어를 추가해서 데몬셋 컨트롤러 대신 기본 스케줄러를 사용해서 데몬셋을 스케줄러 할 수 있다.
+- 데몬셋 파드를 만들거나 수정할 때만 이런 작업을 수행하며, 데몬셋의 spec.template은 변경되지 않는다.
+```
+nodeAffinity:
+  requiredDuringSchedulingIgnoredDuringExecution:
+    nodeSelectorTerms:
+    - matchFields:
+      - key: metadata.name
+        operator: In
+        values:
+        - target-host-name
+```
+- 데몬셋 파드에 ```node.kubernetes.io/unschedulable:NoSchedule```이 톨러레이션으로 자동으로 추가된다.
+- 기본 스케줄러는 데몬셋 파드를 스케줄링시 ```unschedulable``` 노드를 무시한다.
+#### 데몬 파드 통신
+- push: 데몬셋의 파드는 통계 데이터베이스와 같은 다른 서비스로 업데이트를 보내도록 구성되어 있다.
+- 노드IP와 포트: 데몬셋 파드는 호스트 포트를 사용할 수 있고, 노드IP를 통해 파드에 접근할 수 있다.
+- DNS: 동일한 파드 셀렉터로 헤드리스 서비스를 만들고, 그 다음에 엔드포인트 리소스를 사용해서 데몬셋을 찾거나 DNS에서 여러 A레코드를 검색한다
+- 서비스: 동일한 파드 셀렉터로 서비스를 생성. 서비스를 사용해 임의의 노드의 데몬에 도달
+#### 데몬셋 업데이트 
+- 만약 노드 레이블이 변경되면, 데몬셋은 새로 일치하는 노드에 파드를 만들고, 일치하지 않는 노드에서 파드를 삭제한다.
+- 데몬셋이 생성하는 파드를 수정할 수 있지만, 파드는 모든 필드가 업데이트 되지 않음
+- 데몬셋 컨트롤러는 동일한 이름의 노드가 생성될 때 원본 템플릿을 이용한다.
+- 데몬셋을 삭제할 수 있다. kubectl에서 --cascade=orphan를 명시하면 파드는 노드에 남게 된다.
+- 이후 동일한 셀렉터로 새 데몬셋을 만들면, 기존파드를 채택함
+- 만약 파드를 교체해야하는 경우, 데몬셋은 updateStrategy에 따라 파드를 교체함
+### 데몬셋 대안
+#### 초기화 스크립트
+- 데몬 프로세스를 직접 노드에서 시작해, 실행이 가능
+##### 이점
+- 애플리케이션과 동일한 방법으로 데몬을 모니터링하고 로그 관리를 할 수 있다
+- 데몬 및 애플리케이션과 동일한 구성 언어와 도구
+- 리소스 제한이 있는 컨테이너에서 데몬을 실행하면 앱 컨테이너에서 데몬간의 격리를 증가시킨다. 그러나 이것은 파드가 아닌 컨테이너에서 데몬을 실행해 이루어짐
+#### 스태틱 파드
+- kubelet이 감시하는 특정 디렉터리에 파일을 작성하는 파드를 만들 수 있다.
+- kubectl 또는 다른 쿠버네티스 API 클라이언트로 관리할 수 없다.
+- API 서버에 의존하지 않기 때문에 클러스터 부트스트랩하는 경우에 유용하다.
+- 향후에 사용 중단될 가능성이 있다.
+#### 베어 파드
+- 직접적으로 파드를 실행할 노드를 명시해 파드를 생성할 수 있다. 그러나 데몬셋은 노드 장애, 커널, 업그레이드와 같이 변경사항이 많은 노드 유지보수의 경우를 비롯하여, 어떠한 이유로든 삭제되거나 종료된 파드를 교체
+- 개별 파드를 생성하는 것 보다 데몬 셋을 사용해야한다.
+#### 디플로이먼트
+- 데몬셋이 특정 노드에서 다른 파드가 올바르게 실행되도록 하는 노드 수준 기능을 제공한다면, 중요한 경우에 데몬셋을 이용한다.
+## PV(Persistent Volumes)
+- 관리자가 프로비저닝하거나 스토리지 클래스를 사용하여 동적으로 프로비저닝한 클러스터의 스토리지이다.
+- 클러스터 리소스 이며, Volumes와 같은 불륨 플러그인이지만, PV를 사용하는 개별 파드와는 별개의 라이프사이클을 가진다.
+### 프로비저닝
+- PV를 프로비저닝을 하는 방법은 두 가지가 있다.
+#### 동적 프로비저닝
+- 스토리지 클래스를 기반으로 한다.
+- PVC는 스토리지 클래스를 요청해야하며, 관리자는 동적 프로비저닝이 발생하도록 해당 클래스를 생성하고 구성해야한다.
+- ""클래스를 요청하는 클레임은 동적 프로비저닝을 효과적으로 비활성화한다.
+- 스토리지 클래스를 기반의 동적 프로비저닝을 사용하기 위해서는, 클러스터 관리자가 API 서버에서 DefaultStorageClass 어드미션 컨트롤러를 사용하도록 설정해야함
+#### 정적 프로비저닝 
+- 클러스터 관계자는 여러 PV를 생성.
+- 클러스터 사용자가 사용할 수 있는 실제 스토리지의 세부 사항을 제공.
+- 이 PV들은 쿠버네티스 API에 존재하며 사용할 수 있다.
+### 바인딩 
+-
